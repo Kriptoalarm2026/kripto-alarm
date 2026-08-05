@@ -35,11 +35,10 @@ def fiyat_al(sym):
     except:
         return None
 
-# Render free icin web server
 app = Flask(__name__)
 @app.route('/')
 def home():
-    return "Bot 7/24 aktif ✅"
+    return "Bot 7/24 aktif"
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
@@ -89,7 +88,6 @@ while True:
                         pass
     except:
         pass
-
     for coin, alarmlar in list(manuel_alarm.items()):
         f = fiyat_al(coin)
         if not f:
