@@ -1,6 +1,7 @@
-import os, json, requests, time
+import os, json, requests, time, threading
+from flask import Flask
 
-TOKEN = os.getenv("TOKEN")
+TOKEN = os.getenv("TOKEN") or os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 DOSYA = "alarmlar.json"
 
@@ -12,15 +13,18 @@ def yukle():
         return {}
 
 def kaydet(d):
-    with open(DOSYA, "w") as f:
-        json.dump(d, f)
+    try:
+        with open(DOSYA, "w") as f:
+            json.dump(d, f)
+    except:
+        pass
 
 manuel_alarm = yukle()
 
 def tg(mesaj):
     try:
         requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-        data={"chat_id": CHAT_ID, "text": mesaj, "parse_mode":"Markdown", "disable_notification": False}, timeout=10)
+        data={"chat_id": CHAT_ID, "text": mesaj, "parse_mode":"Markdown"}, timeout=10)
     except:
         pass
 
@@ -31,12 +35,23 @@ def fiyat_al(sym):
     except:
         return None
 
-print("Bot basladi, alarmlar:", manuel_alarm)
-tg("✅ Bot 7/24 aktif - PC kapansa da calisir")
+# --- Render bedava icin sahte web server (botu uyutmuyor) ---
+app = Flask(__name__)
+@app.route('/')
+def home():
+    return "Bot 7/24 aktif ✅"
+def run_web():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+threading.Thread(target=run_web, daemon=True).start()
+# -----------------------------------------------------------
+
+print("Bot basladi")
+if TOKEN and CHAT_ID:
+    tg("✅ Bot 7/24 aktif - PC kapansa da calisir")
 
 offset = 0
 while True:
-    # Telegram'dan gelen mesajlari dinle
     try:
         r = requests.get(f"https://api.telegram.org/bot{TOKEN}/getUpdates?offset={offset}&timeout=10", timeout=15).json()
         for upd in r.get('result', []):
@@ -70,23 +85,21 @@ while True:
                             manuel_alarm[coin] = []
                         manuel_alarm[coin].append({"fiyat": fiyat, "not": notu})
                         kaydet(manuel_alarm)
-                        tg(f"✅ {coin} {fiyat} {notu} eklendi - PC kapali olsa da calacak")
-                    except Exception as e:
-                        print(e)
+                        tg(f"✅ {coin} {fiyat} {notu} eklendi")
+                    except:
                         pass
-    except Exception as e:
-        print("getUpdates hata:", e)
+    except:
+        pass
 
-    # Fiyat kontrol
     for coin, alarmlar in list(manuel_alarm.items()):
         f = fiyat_al(coin)
         if not f:
             continue
         for a in alarmlar[:]:
             sev = a['fiyat']
-            if abs(f - sev) / sev < 0.001:  # %0.1 yaklasinca cal
+            if abs(f - sev) / sev < 0.001:
                 for i in range(3):
-                    tg(f"🔔🔔🔔 *{coin} {a['not']} {sev} GELDI!* {i+1}/3\nAnlik: ${f}")
+                    tg(f"🔔 *{coin} {a['not']} {sev} GELDI!* {i+1}/3\nAnlik: ${f}")
                     time.sleep(1)
                 manuel_alarm[coin].remove(a)
                 if not manuel_alarm[coin]:
