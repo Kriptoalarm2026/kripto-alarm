@@ -4,6 +4,7 @@ from flask import Flask
 TOKEN = os.getenv("TOKEN") or os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 DOSYA = "alarmlar.json"
+RENDER_URL = os.getenv("RENDER_EXTERNAL_URL") or "https://kripto-alarm-0rqu.onrender.com"
 
 def yukle():
     try:
@@ -24,7 +25,7 @@ manuel_alarm = yukle()
 def tg(mesaj):
     try:
         requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-        data={"chat_id": CHAT_ID, "text": mesaj, "parse_mode":"Markdown"}, timeout=10)
+        data={"chat_id": CHAT_ID, "text": mesaj, "parse_mode":"Markdown", "disable_notification": False}, timeout=10)
     except:
         pass
 
@@ -38,15 +39,27 @@ def fiyat_al(sym):
 app = Flask(__name__)
 @app.route('/')
 def home():
-    return "Bot 7/24 aktif"
+    return "Bot 7/24 aktif - Render Free"
+
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
-threading.Thread(target=run_web, daemon=True).start()
 
-print("Bot basladi")
+def keep_alive():
+    # Otomatik ayakta tutucu - 4 dakikada bir kendini pingler
+    while True:
+        try:
+            requests.get(RENDER_URL, timeout=10)
+        except:
+            pass
+        time.sleep(240)
+
+threading.Thread(target=run_web, daemon=True).start()
+threading.Thread(target=keep_alive, daemon=True).start()
+
+print("Bot basladi - keepalive aktif")
 if TOKEN and CHAT_ID:
-    tg("✅ Bot 7/24 aktif - PC kapansa da calisir")
+    tg("✅ Bot 7/24 aktif - Otomatik keepalive devrede")
 
 offset = 0
 while True:
@@ -96,7 +109,7 @@ while True:
             sev = a['fiyat']
             if abs(f - sev) / sev < 0.001:
                 for i in range(3):
-                    tg(f"🔔 *{coin} {a['not']} {sev} GELDI!* {i+1}/3\nAnlik: ${f}")
+                    tg(f"🔔🔔🔔 *{coin} {a['not']} {sev} GELDI!* {i+1}/3\nAnlik: ${f}")
                     time.sleep(1)
                 manuel_alarm[coin].remove(a)
                 if not manuel_alarm[coin]:
