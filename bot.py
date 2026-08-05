@@ -35,7 +35,7 @@ def fiyat_al(sym):
     except:
         return None
 
-# --- Render bedava icin sahte web server (botu uyutmuyor) ---
+# Render free icin web server
 app = Flask(__name__)
 @app.route('/')
 def home():
@@ -44,7 +44,6 @@ def run_web():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 threading.Thread(target=run_web, daemon=True).start()
-# -----------------------------------------------------------
 
 print("Bot basladi")
 if TOKEN and CHAT_ID:
