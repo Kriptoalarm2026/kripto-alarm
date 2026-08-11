@@ -30,21 +30,36 @@ def tg(mesaj):
         pass
 
 def fiyat_al(sym):
+    headers = {"User-Agent": "Mozilla/5.0"}
+    # 1. Bybit Spot
     try:
-        # BYBIT SPOT API - sen Bybit'te işlem alıyorsun
-        r = requests.get(f"https://api.bybit.com/v5/market/tickers?category=spot&symbol={sym}", timeout=5).json()
-        price = r['result']['list'][0]['lastPrice']
-        return float(price)
-    except Exception as e:
-        # fallback Binance olmasın diye None dön
-        # print("bybit hata", e)
-        try:
-            # Bybit bazen kategori hatası verebilir, linear deneyelim
-            r = requests.get(f"https://api.bybit.com/v5/market/tickers?category=linear&symbol={sym}", timeout=5).json()
-            price = r['result']['list'][0]['lastPrice']
-            return float(price)
-        except:
-            return None
+        r = requests.get(f"https://api.bybit.com/v5/market/tickers?category=spot&symbol={sym}", headers=headers, timeout=6).json()
+        if r.get('retCode') == 0 and r.get('result', {}).get('list'):
+            return float(r['result']['list'][0]['lastPrice'])
+    except:
+        pass
+    # 2. Bybit Linear (futures)
+    try:
+        r = requests.get(f"https://api.bybit.com/v5/market/tickers?category=linear&symbol={sym}", headers=headers, timeout=6).json()
+        if r.get('retCode') == 0 and r.get('result', {}).get('list'):
+            return float(r['result']['list'][0]['lastPrice'])
+    except:
+        pass
+    # 3. Binance Vision (yedek)
+    try:
+        r = requests.get(f"https://data-api.binance.vision/api/v3/ticker/price?symbol={sym}", headers=headers, timeout=5).json()
+        if 'price' in r:
+            return float(r['price'])
+    except:
+        pass
+    # 4. Binance API (yedek 2)
+    try:
+        r = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={sym}", headers=headers, timeout=5).json()
+        if 'price' in r:
+            return float(r['price'])
+    except:
+        pass
+    return None
 
 app = Flask(__name__)
 
@@ -128,7 +143,10 @@ while True:
                             manuel_alarm[coin] = []
                         manuel_alarm[coin].append({"fiyat": fiyat, "not": notu, "yon": yon})
                         kaydet(manuel_alarm)
-                        tg(f"✅ {coin} {fiyat} {notu} ({yon}) Bybit eklendi - Anlik: ${cur if cur else '?'}")
+                        if cur:
+                            tg(f"✅ {coin} {fiyat} {notu} ({yon}) Bybit eklendi - Anlik: ${cur}")
+                        else:
+                            tg(f"✅ {coin} {fiyat} {notu} eklendi - Fiyat su an alinamadi ama alarm aktif")
                     except Exception as e:
                         print(e)
     except Exception as e:
