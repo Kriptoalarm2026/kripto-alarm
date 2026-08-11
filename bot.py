@@ -29,36 +29,54 @@ def tg(mesaj):
     except:
         pass
 
-def fiyat_al(sym):
+def fiyat_al_kaynakli(sym):
+    headers = {"User-Agent": "Mozilla/5.0"}
+    # 1. Bybit Linear = Vadeli (senin islem yaptigin yer) - ONCELIKLI
     try:
-        r = requests.get(f"https://data-api.binance.vision/api/v3/ticker/price?symbol={sym}", timeout=5).json()
-        return float(r['price'])
+        r = requests.get(f"https://api.bybit.com/v5/market/tickers?category=linear&symbol={sym}", headers=headers, timeout=6).json()
+        if r.get('retCode') == 0 and r.get('result', {}).get('list'):
+            return float(r['result']['list'][0]['lastPrice']), "Bybit Vadeli"
     except:
-        return None
+        pass
+    # 2. Bybit Spot
+    try:
+        r = requests.get(f"https://api.bybit.com/v5/market/tickers?category=spot&symbol={sym}", headers=headers, timeout=6).json()
+        if r.get('retCode') == 0 and r.get('result', {}).get('list'):
+            return float(r['result']['list'][0]['lastPrice']), "Bybit Spot"
+    except:
+        pass
+    # 3. Binance yedek
+    try:
+        r = requests.get(f"https://data-api.binance.vision/api/v3/ticker/price?symbol={sym}", headers=headers, timeout=5).json()
+        if 'price' in r:
+            return float(r['price']), "Binance Yedek"
+    except:
+        pass
+    return None, None
+
+def fiyat_al(sym):
+    f,_ = fiyat_al_kaynakli(sym)
+    return f
 
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot 7/24 aktif - Render Free"
+    return "Bot 7/24 aktif - Bybit Vadeli"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
         data = request.get_json(force=True, silent=True) or {}
-        # TradingView den gelen JSON: {"coin":"BTCUSDT", "fiyat": 64045, "mesaj":"SMA KIRILDI"}
         if not data:
             data = {"mesaj": request.data.decode('utf-8', errors='ignore')}
-        
         coin = str(data.get('coin','')).upper() or "TV ALARM"
         fiyat = data.get('fiyat') or data.get('price') or ""
         mesaj = data.get('mesaj') or data.get('message') or data.get('text') or str(data)
-        
         if fiyat:
             tg(f"📈 *{coin}* {mesaj}\nSeviye: {fiyat}")
         else:
             tg(f"📈 *{coin}*\n{mesaj}")
-            
         return "OK", 200
     except Exception as e:
         print("webhook hata", e)
@@ -79,9 +97,9 @@ def keep_alive():
 threading.Thread(target=run_web, daemon=True).start()
 threading.Thread(target=keep_alive, daemon=True).start()
 
-print("Bot basladi - keepalive + webhook aktif")
+print("Bot basladi - BYBIT VADELI")
 if TOKEN and CHAT_ID:
-    tg("✅ Bot 7/24 aktif - TV webhook: /webhook hazir")
+    tg("✅ Bot 7/24 aktif - Bybit Vadeli fiyatlari ile calisiyor")
 
 offset = 0
 while True:
@@ -114,27 +132,51 @@ while True:
                             coin += "USDT"
                         fiyat = float(parca[1].replace(",", "."))
                         notu = " ".join(parca[2:]).upper() if len(parca) > 2 else ""
+                        cur, kaynak = fiyat_al_kaynakli(coin)
+                        if "YUKARI" in notu or "USTU" in notu or "ÜSTÜ" in notu:
+                            yon = "yukari"
+                        elif "ASAGI" in notu or "AŞAĞI" in notu or "ALTI" in notu:
+                            yon = "asagi"
+                        else:
+                            yon = "yaklasik"
+                            if cur is not None:
+                                yon = "yukari" if fiyat > cur else "asagi"
                         if coin not in manuel_alarm:
                             manuel_alarm[coin] = []
-                        manuel_alarm[coin].append({"fiyat": fiyat, "not": notu})
+                        manuel_alarm[coin].append({"fiyat": fiyat, "not": notu, "yon": yon})
                         kaydet(manuel_alarm)
-                        tg(f"✅ {coin} {fiyat} {notu} eklendi")
-                    except:
-                        pass
-    except:
-        pass
+                        if cur:
+                            tg(f"✅ {coin} {fiyat} {notu} ({yon}) eklendi - Anlik {kaynak}: ${cur}")
+                        else:
+                            tg(f"✅ {coin} {fiyat} eklendi")
+                    except Exception as e:
+                        print(e)
+    except Exception as e:
+        print("getUpdates hata:", e)
+
     for coin, alarmlar in list(manuel_alarm.items()):
-        f = fiyat_al(coin)
+        f, kaynak = fiyat_al_kaynakli(coin)
         if not f:
             continue
         for a in alarmlar[:]:
             sev = a['fiyat']
-            if abs(f - sev) / sev < 0.001:
+            yon = a.get('yon', 'yaklasik')
+            tetikle = False
+            if yon == "yukari":
+                if f >= sev:
+                    tetikle = True
+            elif yon == "asagi":
+                if f <= sev:
+                    tetikle = True
+            else:
+                if abs(f - sev) / sev < 0.0001:
+                    tetikle = True
+            if tetikle:
                 for i in range(3):
-                    tg(f"🔔🔔🔔 *{coin} {a['not']} {sev} GELDI!* {i+1}/3\nAnlik: ${f}")
+                    tg(f"🔔🔔🔔 *{coin} {a['not']} {sev} GELDI!* {i+1}/3\nAnlik {kaynak}: ${f}")
                     time.sleep(1)
                 manuel_alarm[coin].remove(a)
                 if not manuel_alarm[coin]:
                     del manuel_alarm[coin]
                 kaydet(manuel_alarm)
-    time.sleep(10)
+    time.sleep(3)
