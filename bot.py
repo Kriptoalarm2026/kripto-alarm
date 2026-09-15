@@ -53,8 +53,7 @@ def webhook():
         return "OK", 200
     except: return "OK", 200
 
-def run_web():
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+def run_web(): app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 def keep_alive():
     while True:
         try: requests.get(RENDER_URL, timeout=10)
@@ -64,10 +63,9 @@ def keep_alive():
 threading.Thread(target=run_web, daemon=True).start()
 threading.Thread(target=keep_alive, daemon=True).start()
 
-print("Bot basladi")
-if TOKEN and CHAT_ID: tg("✅ Bot aktif - duzeltilmis")
-
+if TOKEN and CHAT_ID: tg("✅ Bot aktif - toleranssiz")
 offset = 0
+
 while True:
     try:
         r = requests.get(f"https://api.telegram.org/bot{TOKEN}/getUpdates?offset={offset}&timeout=10", timeout=15).json()
@@ -83,12 +81,10 @@ while True:
                 p = up.split()
                 if len(p) > 1:
                     c = p[1] if "USDT" in p[1] else p[1]+"USDT"
-                    manuel_alarm.pop(c, None)
-                    son_fiyat.pop(c, None)
+                    manuel_alarm.pop(c, None); son_fiyat.pop(c, None)
                 else:
                     manuel_alarm = {}; son_fiyat = {}
-                kaydet(manuel_alarm)
-                tg("🗑 Silindi")
+                kaydet(manuel_alarm); tg("🗑 Silindi")
             else:
                 parca = raw.split()
                 if len(parca) >= 2:
@@ -98,16 +94,18 @@ while True:
                     except: continue
                     notu = " ".join(parca[2:]).upper() if len(parca) > 2 else ""
                     cur = fiyat_al(coin)
-                    if "YUKARI" in notu or "USTU" in notu or "ÜSTÜ" in notu: yon = "yukari"
-                    elif "ASAGI" in notu or "ALTI" in notu: yon = "asagi"
-                    else:
+                    if cur is None:
                         yon = "yaklasik"
-                        if cur is not None:
-                            yon = "yukari" if f > cur else "asagi"
+                    elif abs(f - cur) / cur < 0.0001:
+                        yon = "yaklasik"
+                    elif f > cur:
+                        yon = "yukari"
+                    else:
+                        yon = "asagi"
                     if coin not in manuel_alarm: manuel_alarm[coin]=[]
-                    if any(abs(a['fiyat']-f) < 0.0000001 for a in manuel_alarm[coin]): continue
+                    if any(abs(a['fiyat']-f) < 1e-9 for a in manuel_alarm[coin]): continue
                     manuel_alarm[coin].append({"fiyat": f, "not": notu, "yon": yon})
-                    if cur is not None: son_fiyat[coin] = cur
+                    if cur: son_fiyat[coin] = cur
                     kaydet(manuel_alarm)
                     tg(f"✅ {coin} {f} {notu} ({yon}) eklendi - Anlik: ${cur}")
     except: pass
@@ -117,18 +115,13 @@ while True:
         if not pf: continue
         last = son_fiyat.get(coin)
         son_fiyat[coin] = pf
-        if last is None: continue # eklenir eklenmez çalmasın
+        if last is None: continue
 
         for a in alarmlar[:]:
-            sev = a['fiyat']
-            yon = a.get('yon','yaklasik')
-            tetik = False
-            # %0.5 iğne toleransı
-            if abs(pf - sev) / sev < 0.005: tetik = True
-            # kesme kontrolü
-            elif yon == "yukari" and last < sev <= pf: tetik = True
-            elif yon == "asagi" and last > sev >= pf: tetik = True
-            elif yon == "yaklasik" and (last - sev)*(pf - sev) <= 0: tetik = True
+            sev = a['fiyat']; yon = a.get('yon','yaklasik'); tetik=False
+            if yon == "yukari" and last < sev <= pf: tetik=True
+            elif yon == "asagi" and last > sev >= pf: tetik=True
+            elif yon == "yaklasik" and ((last < sev <= pf) or (last > sev >= pf)): tetik=True
 
             if tetik:
                 for i in range(3):
