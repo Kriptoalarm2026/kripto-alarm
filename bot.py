@@ -1,5 +1,5 @@
 import os, json, requests, time, threading
-from flask import Flask, request
+from flask import Flask
 
 TOKEN = os.getenv("TOKEN") or os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
@@ -10,99 +10,89 @@ def yukle():
         with open(DOSYA,"r") as f: return json.load(f)
     except: return {}
 def kaydet(d):
-    try:
-        with open(DOSYA,"w") as f: json.dump(d,f)
+    with open(DOSYA,"w") as f: json.dump(d,f)
+
+alarmlar = yukle()
+son = {}
+
+def tg(t):
+    try: requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", data={"chat_id":CHAT_ID,"text":t}, timeout=10)
     except: pass
 
-manuel_alarm = yukle()
-
-def tg(m):
-    try:
-        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-        data={"chat_id":CHAT_ID,"text":m}, timeout=10)
-    except: pass
-
-def fiyat_al(sym):
-    sym=sym.upper()
-    for s in [sym, sym.replace("USDT",""), sym.replace("USDT","")+"USDT"]:
+def fiyat(sym):
+    sym = sym.upper()
+    for s in [sym, sym.replace("USDT","")]:
         for cat in ["linear","spot"]:
             try:
-                r=requests.get(f"https://api.bybit.com/v5/market/tickers?category={cat}&symbol={s}", timeout=6).json()
-                if r.get('retCode')==0 and r.get('result',{}).get('list'):
-                    return float(r['result']['list'][0]['lastPrice'])
+                r = requests.get(f"https://api.bybit.com/v5/market/tickers?category={cat}&symbol={s}", timeout=5).json()
+                if r.get("result",{}).get("list"):
+                    return float(r["result"]["list"][0]["lastPrice"])
             except: pass
     return None
 
-def seviye_al(a):
-    # hem eski {"fiyat":...} hem yeni 0.28 formatini anla
-    if isinstance(a, dict): return float(a.get('fiyat',0))
+def sev(a):
+    if isinstance(a, dict): return float(a.get("fiyat") or a.get("f") or 0)
     try: return float(a)
     except: return None
 
-app = Flask(__name__)
-@app.route('/')
-def home(): return "Bot aktif"
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    try:
-        data=request.get_json(force=True,silent=True) or {}
-        tg(f"📈 {data}")
-        return "OK",200
-    except: return "OK",200
+try: requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=True", timeout=5)
+except: pass
 
-def run_web(): app.run(host="0.0.0.0", port=int(os.getenv("PORT",10000)))
-threading.Thread(target=run_web, daemon=True).start()
+app = Flask(__name__)
+@app.route("/")
+def h(): return "ok"
+threading.Thread(target=lambda: app.run(host="0.0.0.0", port=int(os.getenv("PORT",10000))), daemon=True).start()
 
 tg("✅ Bot aktif")
-offset=0
+offset = 0
+
 while True:
     try:
-        r=requests.get(f"https://api.telegram.org/bot{TOKEN}/getUpdates?offset={offset}&timeout=10", timeout=15).json()
-        for upd in r.get('result',[]):
-            offset=upd['update_id']+1
-            raw=upd.get('message',{}).get('text','').strip()
-            if not raw: continue
-            up=raw.upper()
-            if up=="LISTE":
-                out=[]
-                for k,v in manuel_alarm.items():
-                    for a in v:
-                        out.append(f"{k} {seviye_al(a)}")
-                tg("📋 " + "\n".join(out) if out else "Liste bos")
+        res = requests.get(f"https://api.telegram.org/bot{TOKEN}/getUpdates?offset={offset}&timeout=10", timeout=15).json()
+        for u in res.get("result",[]):
+            offset = u["update_id"]+1
+            txt = u.get("message",{}).get("text","").strip()
+            if not txt: continue
+            up = txt.upper()
+            if up == "LISTE":
+                l = [f"{k} {sev(x)}" for k,v in alarmlar.items() for x in v]
+                tg("\n".join(l) if l else "Liste boş")
             elif up.startswith("SIL"):
-                p=up.split()
+                p = up.split()
                 if len(p)>1:
-                    c=p[1].upper()
-                    manuel_alarm.pop(c,None)
-                    manuel_alarm.pop(c[:-4] if c.endswith("USDT") else c+"USDT",None)
-                else: manuel_alarm={}
-                kaydet(manuel_alarm)
+                    c = p[1].upper()
+                    if "USDT" not in c: c+="USDT"
+                    alarmlar.pop(c,None)
+                else: alarmlar={}
+                kaydet(alarmlar)
                 tg("🗑️ Silindi")
             else:
-                parca=raw.split()
-                if len(parca)>=2:
-                    coin=parca[0].upper()
-                    if "USDT" not in coin: coin=coin+"USDT"
-                    try: fiyat=float(parca[1].replace(",","."))
+                pr = txt.split()
+                if len(pr)>=2:
+                    coin = pr[0].upper()
+                    if "USDT" not in coin: coin+="USDT"
+                    try: f = float(pr[1].replace(",","."))
                     except: continue
-                    if coin not in manuel_alarm: manuel_alarm[coin]=[]
-                    manuel_alarm[coin].append(fiyat)
-                    kaydet(manuel_alarm)
-                    tg(f"✅ {coin} {fiyat} eklendi")
+                    if coin not in alarmlar: alarmlar[coin]=[]
+                    if not any(abs((sev(x) or 0)-f) < 0.000001 for x in alarmlar[coin]):
+                        alarmlar[coin].append(f)
+                        kaydet(alarmlar)
+                        tg(f"✅ {coin} {f} eklendi")
     except: pass
 
-    for coin, alarmlar in list(manuel_alarm.items()):
-        f=fiyat_al(coin)
-        if not f: continue
-        for a in alarmlar[:]:
-            sev=seviye_al(a)
-            if not sev: continue
-            # %0.5 icine girerse cal - ziplasa da yakalar
-            if abs(f - sev) / sev < 0.005:
+    for coin, lst in list(alarmlar.items()):
+        pf = fiyat(coin)
+        if not pf: continue
+        last = son.get(coin)
+        son[coin]=pf
+        for a in lst[:]:
+            s = sev(a)
+            if not s: continue
+            if abs(pf-s)/s < 0.005 or (last and (last-s)*(pf-s) <=0):
                 for i in range(3):
-                    tg(f"🔔 {coin} {sev} GELDI! ${f} {i+1}/3")
-                    time.sleep(1)
-                manuel_alarm[coin].remove(a)
-                if not manuel_alarm[coin]: del manuel_alarm[coin]
-                kaydet(manuel_alarm)
-    time.sleep(3)
+                    tg(f"🔔 {coin} {s} GELDI! ${pf}")
+                    time.sleep(0.7)
+                alarmlar[coin].remove(a)
+                if not alarmlar[coin]: del alarmlar[coin]
+                kaydet(alarmlar)
+    time.sleep(2)
