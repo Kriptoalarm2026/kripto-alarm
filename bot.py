@@ -11,9 +11,7 @@ def yukle():
         with open(DOSYA, "r") as f: return json.load(f)
     except: return {}
 def kaydet(d):
-    try:
-        with open(DOSYA, "w") as f: json.dump(d, f)
-    except: pass
+    with open(DOSYA, "w") as f: json.dump(d, f)
 
 manuel_alarm = yukle()
 son_fiyat = {}
@@ -41,13 +39,13 @@ def fiyat_al(sym):
 
 app = Flask(__name__)
 @app.route('/')
-def home(): return "Bot aktif"
+def home(): return "Bot aktif - toleranssiz"
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
         data = request.get_json(force=True, silent=True) or {}
         coin = str(data.get('coin','')).upper() or "TV ALARM"
-        fiyat = data.get('fiyat') or data.get('price') or ""
+        fiyat = data.get('fiyat') or ""
         mesaj = data.get('mesaj') or str(data)
         tg(f"📈 *{coin}* {mesaj} {fiyat}")
         return "OK", 200
@@ -63,7 +61,7 @@ def keep_alive():
 threading.Thread(target=run_web, daemon=True).start()
 threading.Thread(target=keep_alive, daemon=True).start()
 
-if TOKEN and CHAT_ID: tg("✅ Bot aktif - toleranssiz")
+if TOKEN and CHAT_ID: tg("✅ Bot aktif - toleranssiz mod")
 offset = 0
 
 while True:
@@ -75,7 +73,7 @@ while True:
             if not raw: continue
             up = raw.upper()
             if up == "LISTE":
-                msj = "\n".join([f"{k}: {a['fiyat']} {a.get('yon','')}" for k,v in manuel_alarm.items() for a in v]) or "Bos"
+                msj = "\n".join([f"{k}: {a['fiyat']} ({a.get('yon','')})" for k,v in manuel_alarm.items() for a in v]) or "Bos"
                 tg(f"📋 {msj}")
             elif up.startswith("SIL"):
                 p = up.split()
@@ -94,14 +92,9 @@ while True:
                     except: continue
                     notu = " ".join(parca[2:]).upper() if len(parca) > 2 else ""
                     cur = fiyat_al(coin)
-                    if cur is None:
-                        yon = "yaklasik"
-                    elif abs(f - cur) / cur < 0.0001:
-                        yon = "yaklasik"
-                    elif f > cur:
-                        yon = "yukari"
-                    else:
-                        yon = "asagi"
+                    if cur is None or abs(f - cur) / cur < 0.0001: yon = "yaklasik"
+                    elif f > cur: yon = "yukari"
+                    else: yon = "asagi"
                     if coin not in manuel_alarm: manuel_alarm[coin]=[]
                     if any(abs(a['fiyat']-f) < 1e-9 for a in manuel_alarm[coin]): continue
                     manuel_alarm[coin].append({"fiyat": f, "not": notu, "yon": yon})
@@ -116,13 +109,11 @@ while True:
         last = son_fiyat.get(coin)
         son_fiyat[coin] = pf
         if last is None: continue
-
         for a in alarmlar[:]:
             sev = a['fiyat']; yon = a.get('yon','yaklasik'); tetik=False
             if yon == "yukari" and last < sev <= pf: tetik=True
             elif yon == "asagi" and last > sev >= pf: tetik=True
             elif yon == "yaklasik" and ((last < sev <= pf) or (last > sev >= pf)): tetik=True
-
             if tetik:
                 for i in range(3):
                     tg(f"🔔🔔🔔 *{coin} {a['not']} {sev} GELDI!* {i+1}/3\nAnlik: ${pf}")
